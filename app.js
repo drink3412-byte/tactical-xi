@@ -5,7 +5,8 @@ const escapeHtml=(v)=>String(v).replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','
 function defaultState(){return {version:1,activeSlot:0,tactics:[createTactic('기본 전술'),createTactic('대안 전술'),createTactic('마무리 전술')],career:{club:0,season:1,fixtureIndex:1,played:0,wins:0,draws:0,losses:0,points:0,gf:0,ga:0,board:69,rep:22,history:[],fired:false},match:null,notes:{}};}
 let state;
 try{state=JSON.parse(localStorage.getItem(STORAGE_KEY))||defaultState();if(!state.tactics?.[0]?.team||!state.career)state=defaultState();}catch(e){state=defaultState();}
-const ui={page:'tactics',shape:'in',tab:'team',player:5,opponent:10};
+state.tactics.forEach(normalizeTacticRoles);
+const ui={page:'tactics',shape:'in',tab:'player',player:7,opponent:10,expandedGroup:'공 소유 · 드리블'};
 function tactic(){return state.tactics[state.activeSlot];}
 function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch(e){}const s=$('#saveLabel');s.textContent='● 자동 저장';}
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('visible');clearTimeout(toast.timeout);toast.timeout=setTimeout(()=>t.classList.remove('visible'),2600);}
@@ -24,18 +25,43 @@ function tacticSlotName(i){return state.tactics[i]?.name||`전술 ${i+1}`;}
 function shapeKey(){return ui.shape==='in'?'inPositions':'outPositions';}
 function renderPitch(){
  const svg=$('#pitch'), g=$('#playerMarkers');g.innerHTML='';
- const pos=tactic()[shapeKey()];
+ const t=tactic(),pos=t[shapeKey()];
  pos.forEach((p,i)=>{
-  const node=document.createElementNS('http://www.w3.org/2000/svg','g');node.classList.add('player');node.dataset.player=i;
+  const node=document.createElementNS('http://www.w3.org/2000/svg','g');node.classList.add('player','position-'+positionAt(p,i).group.toLowerCase());node.dataset.player=i;
   if(i===ui.player)node.classList.add('selected');
-  node.setAttribute('transform',`translate(${14+p[0]*3.12},${14+p[1]*4.72})`);
-  const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');circle.setAttribute('r','15.5');circle.setAttribute('fill',i===ui.player?'#f3c77d':'#eaf7ee');circle.setAttribute('stroke','#0c3327');circle.setAttribute('stroke-width','2');circle.setAttribute('filter','url(#shadow)');
-  const txt=document.createElementNS('http://www.w3.org/2000/svg','text');txt.setAttribute('fill','#14352b');txt.setAttribute('font-weight','900');txt.setAttribute('font-size','12');txt.setAttribute('text-anchor','middle');txt.setAttribute('y','4.5');txt.setAttribute('pointer-events','none');txt.textContent=i+1;
-  node.append(circle,txt);g.append(node);
-  let moved=false;
-  node.addEventListener('pointerdown',e=>{e.preventDefault();moved=false;ui.player=i;g.querySelectorAll('circle').forEach((c,idx)=>c.setAttribute('fill',idx===i?'#f3c77d':'#eaf7ee'));node.setPointerCapture(e.pointerId);});
-  node.addEventListener('pointermove',e=>{if(!node.hasPointerCapture(e.pointerId))return;moved=true;const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const pnt=pt.matrixTransform(svg.getScreenCTM().inverse());const x=clamp((pnt.x-14)/3.12,3,97),y=clamp((pnt.y-14)/4.72,4,96);tactic()[shapeKey()][i]=[Number(x.toFixed(1)),Number(y.toFixed(1))];node.setAttribute('transform',`translate(${14+x*3.12},${14+y*4.72})`);});
-  node.addEventListener('pointerup',e=>{if(node.hasPointerCapture(e.pointerId))node.releasePointerCapture(e.pointerId);if(moved){save();renderPreview();}if(ui.tab==='player')renderInstructions();});
+  const pointX=14+p[0]*3.12,pointY=14+p[1]*4.72;
+  node.setAttribute('transform',`translate(${pointX},${pointY})`);
+  const meta=positionAt(p,i);let role=ui.shape==='in'?t.players[i].attackRole:t.players[i].defendRole;
+  const shortened=({ '볼 운반형 윙어':'볼 운반','인사이드 포워드':'인사이드 FW','전진형 플레이메이커':'전진 PM','딥라잉 플레이메이커':'딥라잉 PM','공격형 스위퍼 키퍼':'스위퍼 GK','수비형 미드필더':'수비형 MF','상대 센터백 마킹':'CB 마킹' })[role]||role;
+  const palette={GK:'#dfbe80',CB:'#78b5ed',FB:'#78b5ed',WB:'#9abcf0',DM:'#9fb0ea',CM:'#a9a6ee',AM:'#edb984',WIDE:'#72e0ae',WM:'#72d7bc',ST:'#f0a283'};
+  const fill=palette[meta.group];
+  node.innerHTML=`<circle class="player-halo" r="20" fill="${fill}" fill-opacity="${i===ui.player?.32:.12}"/><circle class="marker-circle" r="15.5" fill="${i===ui.player?'#f2d39e':'#182b33'}" stroke="${fill}" stroke-width="${i===ui.player?3:2}"/><text class="marker-number" y="4" text-anchor="middle">${i+1}</text><rect class="marker-pill" x="-25" y="20" width="50" height="16" rx="5"/><text class="marker-pos" y="32" text-anchor="middle">${escapeHtml(meta.label)}</text><text class="marker-role" y="47" text-anchor="middle">${escapeHtml(shortened.length>10?shortened.slice(0,9)+'…':shortened)}</text>`;
+  g.append(node);
+  let moved=false,initial=null;
+  node.addEventListener('pointerdown',e=>{e.preventDefault();moved=false;initial=[e.clientX,e.clientY];ui.player=i;g.querySelectorAll('.player').forEach((n)=>n.classList.toggle('selected',n===node));node.setPointerCapture(e.pointerId);});
+  node.addEventListener('pointermove',e=>{
+   if(!node.hasPointerCapture(e.pointerId)||!initial)return;
+   if(Math.hypot(e.clientX-initial[0],e.clientY-initial[1])<3&&!moved)return;
+   moved=true;
+   const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+   const ctm=svg.getScreenCTM();if(!ctm)return;
+   const pnt=pt.matrixTransform(ctm.inverse());
+   let x=clamp((pnt.x-14)/3.12,4,96),y=clamp((pnt.y-14)/4.72,4,96);
+   if(i===0){x=clamp(x,32,68);y=clamp(y,87,96);}
+   else y=clamp(y,5,79);
+   t[shapeKey()][i]=[Number(x.toFixed(1)),Number(y.toFixed(1))];
+   node.setAttribute('transform',`translate(${14+x*3.12},${14+y*4.72})`);
+  });
+  node.addEventListener('pointerup',e=>{
+   if(node.hasPointerCapture(e.pointerId))node.releasePointerCapture(e.pointerId);
+   if(moved){
+    const changed=ensureRoleValidity(t,i,ui.shape);
+    save();renderPreview();
+    if(changed)toast('위치가 바뀌어 해당 포지션의 기본 역할로 자동 변경했습니다.');
+   }
+   renderPitch();if(ui.tab==='player')renderInstructions();
+  });
+  node.addEventListener('pointercancel',()=>{renderPitch();if(ui.tab==='player')renderInstructions();});
  });
 }
 function makeControl(def,value, onUpdate){
@@ -60,31 +86,82 @@ function addGroupedControls(root, items, onUpdate){
   root.append(details);
  });
 }
+function rolePickerSection(root,t,player,shape){
+ const inPossession=shape==='in';
+ const pos=positionAt(t[inPossession?'inPositions':'outPositions'][player],player);
+ const field=inPossession?'attackRole':'defendRole';
+ const roles=roleOptions(pos,shape),current=t.players[player][field];
+ const stage=document.createElement('div');stage.className='role-stage';
+ stage.innerHTML=`<div class="role-stage-label">${inPossession?'IN POSSESSION · 공격 역할':'OUT OF POSSESSION · 수비 역할'}</div><div class="role-stage-main"><strong>${escapeHtml(pos.label)} <span>${escapeHtml(pos.name)}</span></strong><span class="role-stage-number">#${String(player+1).padStart(2,'0')}</span></div><div class="role-stage-foot">${inPossession?'볼을 가진 상황에서 수행할 역할을 선택하세요.':'공을 잃었을 때 수행할 수비 역할을 선택하세요.'}</div>`;
+ root.append(stage);
+ const title=document.createElement('div');title.className='role-section-heading';
+ title.innerHTML=`<div><b>${inPossession?'공격 역할 · Duty':'수비 역할 · Duty'}</b><span>${roles.length}개 선택 가능 · 포지션 ${escapeHtml(pos.label)} 전용</span></div>`;root.append(title);
+ const cards=document.createElement('div');cards.className='role-cards';
+ roles.forEach((role,idx)=>{
+  const btn=document.createElement('button');btn.className='role-card'+(role===current?' selected':'');
+  btn.type='button';btn.setAttribute('aria-pressed',role===current?'true':'false');
+  const explain=inPossession?roleDescription(pos,role):'공 미소유 상태에서 '+role+' 행동을 우선 수행';
+  btn.innerHTML=`<span class="role-card-top"><b>${escapeHtml(role)}</b><span class="role-select-dot"></span></span><span class="role-card-desc">${escapeHtml(explain)}</span>`;
+  btn.addEventListener('click',()=>{
+   t.players[player][field]=role;
+   Object.assign(t.players[player],inPossession?rolePreset(pos,role):DEFEND_PRESETS[role]||{});
+   save();renderPitch();renderPreview();renderInstructions();updateMatchTacticsSummary();
+   toast(`${pos.label} · ${role} 적용`);
+  });
+  cards.append(btn);
+ });root.append(cards);
+ const note=document.createElement('div');note.className='role-notice';
+ note.innerHTML=`<b>역할 선택 = 기본 행동값 적용</b><span>아래 슬라이더로 볼 운반·안쪽 침투·슈팅 등 세부 행동을 별도로 덮어쓸 수 있습니다. 위치가 바뀌면 그 포지션에서 가능한 역할만 표시됩니다.</span>`;
+ root.append(note);
+}
 function renderInstructions(){
  const root=$('#instructions');root.innerHTML='';const t=tactic();
  const message=(text)=>{const p=document.createElement('p');p.className='tip';p.textContent=text;root.append(p);};
  if(ui.tab==='team'){
-  message('항목을 직접 조정하십시오. 각 수치는 경기 엔진의 전술 계산에 반영됩니다. 상충하는 지시는 팀의 전술 조직력을 약화시킬 수 있습니다.');
+  message('지시는 전술 엔진에 반영됩니다. 공 소유 및 수비 전술을 개별 조정하십시오.');
   addGroupedControls(root,DEFINITIONS,(op,key,v)=>{
-   if(op==='get')return t.team[key]; t.team[key]=v;save();renderPreview();updateMatchTacticsSummary();
+   if(op==='get')return t.team[key];t.team[key]=v;save();renderPreview();updateMatchTacticsSummary();
   });
  }
  if(ui.tab==='player'){
-  message('축구장 위의 선수를 터치하거나 아래 번호를 선택하십시오. 11명 모두 공 소유/미소유 역할과 세부 행동을 별도로 지시할 수 있습니다.');
-  const picker=document.createElement('div');picker.className='player-picker';
-  for(let i=0;i<11;i++){let b=document.createElement('button');b.textContent=`${i+1}번${i===0?' GK':''}`;b.classList.toggle('active',ui.player===i);b.onclick=()=>{ui.player=i;renderPitch();renderInstructions();};picker.append(b);}root.append(picker);
-  const selected=document.createElement('div');selected.className='player-selected';selected.innerHTML=`<span>${ui.player+1}번 선수 · 공격 / 수비 역할 별도 편집</span><span>고정 선수단</span>`;root.append(selected);
-  PERSONAL_DEFS.forEach(d=>root.append(makeControl(d,t.players[ui.player][d.key],v=>{t.players[ui.player][d.key]=v;save();renderPreview();})));
+  const picker=document.createElement('div');picker.className='player-picker enhanced-picker';
+  for(let i=0;i<11;i++){
+   const meta=positionAt(t[shapeKey()][i],i),b=document.createElement('button');
+   b.innerHTML=`<strong>${i+1}</strong><small>${escapeHtml(meta.label)}</small>`;
+   b.title=`${i+1}번 ${meta.name}`;
+   b.classList.toggle('active',ui.player===i);
+   b.onclick=()=>{ui.player=i;renderPitch();renderInstructions();};picker.append(b);
+  }root.append(picker);
+  rolePickerSection(root,t,ui.player,ui.shape);
+  const dTitle=document.createElement('div');dTitle.className='role-section-heading role-detail-heading';
+  dTitle.innerHTML=`<div><b>세부 행동 지시 · Fine tuning</b><span>개인별 수치를 원하는 대로 조절</span></div><button class="role-reset" type="button">역할 기본값 재적용</button>`;
+  root.append(dTitle);
+  $('.role-reset',dTitle).addEventListener('click',()=>{
+   const shape=ui.shape,pos=positionAt(t[shapeKey()][ui.player],ui.player);
+   const role=t.players[ui.player][shape==='in'?'attackRole':'defendRole'];
+   Object.assign(t.players[ui.player],shape==='in'?rolePreset(pos,role):DEFEND_PRESETS[role]||{});
+   save();renderInstructions();renderPreview();toast('역할 기본 세부 지시를 다시 적용했습니다.');
+  });
+  const items=PERSONAL_DEFS.filter(d=>ui.shape==='in'?!d.group.startsWith('공 미소유'):d.group.startsWith('공 미소유'));
+  const groups=[...new Set(items.map(d=>d.group))];
+  groups.forEach(group=>{
+   const div=document.createElement('div');div.className='tuning-group';
+   div.innerHTML=`<div class="tuning-title">${escapeHtml(group)}</div><div class="tuning-grid"></div>`;
+   items.filter(d=>d.group===group).forEach(def=>$('.tuning-grid',div).append(makeControl(def,t.players[ui.player][def.key],v=>{
+    t.players[ui.player][def.key]=v;save();renderPreview();
+   })));
+   root.append(div);
+  });
  }
  if(ui.tab==='opponent'){
-  message('특정 상대 포지션만 집중 마킹하거나 압박할 수 있습니다. 상대에게 지시를 강제로 적용하는 기능이 아니라 우리 수비수의 행동을 변경합니다.');
+  message('특정 상대 포지션만 집중 마킹하거나 압박할 수 있습니다. 상대의 지시가 아니라 우리 선수들의 대응을 설정합니다.');
   const box=document.createElement('div');box.className='opponent-picker';
   OPP_TARGETS.forEach((target,i)=>{const b=document.createElement('button');b.textContent=target;b.classList.toggle('active',ui.opponent===i);b.onclick=()=>{ui.opponent=i;renderInstructions();};box.append(b);});root.append(box);
   const target=OPP_TARGETS[ui.opponent];
-  [{key:'press',title:'이 상대를 압박하는 빈도',type:'range',desc:'선택한 위치의 상대 선수에게 압박 집중'}, {key:'tight',title:'밀착 마킹',type:'range',desc:'선택한 상대의 볼 받는 공간을 차단'}, {key:'tackle',title:'상대에 대한 태클 적극성',type:'range',desc:'경고 위험과 탈취 기회 모두 증가'}, {key:'foot',title:'유도할 발',type:'select',options:['자동','왼발','오른발','약한 발'],desc:'상대가 공을 차는 방향 유도'}].forEach(d=>root.append(makeControl(d,t.opp[target][d.key],v=>{t.opp[target][d.key]=v;save();renderPreview();})));
+  [{key:'press',title:'상대 압박 빈도',type:'range',desc:'선택한 상대에게 압박 집중'}, {key:'tight',title:'밀착 마킹',type:'range',desc:'볼 받는 공간을 차단'}, {key:'tackle',title:'태클 적극성',type:'range',desc:'위험과 탈취 기회가 함께 증가'}, {key:'foot',title:'유도할 발',type:'select',options:['자동','왼발','오른발','약한 발'],desc:'공을 처리하도록 유도하는 방향'}].forEach(d=>root.append(makeControl(d,t.opp[target][d.key],v=>{t.opp[target][d.key]=v;save();renderPreview();})));
  }
  if(ui.tab==='setpiece'){
-  message('코너킥, 프리킥, 스로인과 수비 시 세트피스 행동을 조정할 수 있습니다.');
+  message('코너킥, 프리킥, 스로인과 수비 시 세트피스 행동을 조정합니다.');
   SP_DEFS.forEach(d=>root.append(makeControl(d,t.setpieces[d.key],v=>{t.setpieces[d.key]=v;save();renderPreview();})));
  }
 }
@@ -133,10 +210,11 @@ $('#formationInput').addEventListener('change',e=>{
  const t=tactic(),f=e.target.value;
  if(ui.shape==='in'){t.inFormation=f;t.inPositions=FORMATIONS[f].map(p=>[...p]);}
  else {t.outFormation=f;t.outPositions=FORMATIONS[f].map(p=>[...p]);}
- save();renderPitch();renderPreview();toast(`${ui.shape==='in'?'공 소유':'공 미소유'} 포메이션 변경: ${f}`);
+ t.players.forEach((_,i)=>ensureRoleValidity(t,i,ui.shape));
+ save();renderPitch();renderInstructions();renderPreview();toast(`${ui.shape==='in'?'공 소유':'공 미소유'} 포메이션 변경: ${f}`);
 });
 $('#renameTactic').addEventListener('click',()=>{const name=prompt('전술 이름을 입력하세요.',tactic().name);if(name!==null&&name.trim()){tactic().name=name.trim().slice(0,35);save();renderTactics();}});
-$('#cloneTactic').addEventListener('click',()=>{const dest=(state.activeSlot+1)%3;const src=JSON.parse(JSON.stringify(tactic()));src.name=tactic().name+' 복제';if(confirm(`현재 전술을 ${'ABC'[dest]} 슬롯에 복사할까요? 기존 설정은 덮어씁니다.`)){state.tactics[dest]=src;save();renderTactics();toast(`전술 ${'ABC'[dest]} 슬롯에 복사했습니다.`);}});
+$('#cloneTactic').addEventListener('click',()=>{const dest=(state.activeSlot+1)%3;const src=JSON.parse(JSON.stringify(tactic()));normalizeTacticRoles(src);src.name=tactic().name+' 복제';if(confirm(`현재 전술을 ${'ABC'[dest]} 슬롯에 복사할까요? 기존 설정은 덮어씁니다.`)){state.tactics[dest]=src;save();renderTactics();toast(`전술 ${'ABC'[dest]} 슬롯에 복사했습니다.`);}});
 $('#resetTactic').addEventListener('click',()=>{if(confirm('현재 전술 슬롯을 초기 설정으로 되돌릴까요?')){state.tactics[state.activeSlot]=createTactic(tactic().name);save();renderTactics();}});
 $('#advance5').addEventListener('click',()=>{stepMatch(state,5);save();renderMatch();});
 $('#advance15').addEventListener('click',()=>{stepMatch(state,15);save();renderMatch();});
