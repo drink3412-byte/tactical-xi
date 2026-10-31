@@ -11,7 +11,7 @@ function getTeamModel(tactic, strength, minute, opposing) {
  const rangeKeys=(group)=>DEFINITIONS.filter(d=>d.group===group&&d.type==='range').map(d=>norm(t[d.key]));
  const sumGroup=(g)=>avg(rangeKeys(g));
  const individual = avg(p.map(i=>avg([norm(i.run),norm(i.passRisk),norm(i.dribble),norm(i.press),norm(i.track)])));
- const roles = p.filter(i=>i.attackRole!=='기본 역할').length;
+ const roles = p.filter(i=>i.attackRole&&i.attackRole!=='기본 역할').length;
  const elastic = Math.abs(t.overlapLeft-t.underlapLeft)+Math.abs(t.overlapRight-t.underlapRight);
  const transition = t.won==='빠른 역습'?.14:t.won==='공격 형태 유지'?-.035:0;
  const counterpress=t.lost==='역압박'?.17:t.lost==='수비 재정비'?-.065:0;
@@ -24,6 +24,24 @@ function getTeamModel(tactic, strength, minute, opposing) {
  attack+=personalMetric('run')*.025+personalMetric('passRisk')*.018+personalMetric('dribble')*.017+personalMetric('shoot')*.018+personalMetric('cross')*.013+personalMetric('wide')*.010+personalMetric('roam')*.012;
  defense+=personalMetric('hold')*.022+personalMetric('press')*.024+personalMetric('tackle')*.015+personalMetric('mark')*.016+personalMetric('track')*.027;
  control+=personalMetric('passRisk')*.012+personalMetric('hold')*.012;
+ // Role and duty profiles: actual location determines which player contributions matter.
+ const wingerIndexes=tactic.inPositions.map((pos,i)=>positionAt(pos,i).group==='WIDE'?i:-1).filter(i=>i>=0);
+ const wingers=wingerIndexes.map(i=>p[i]);
+ const wingValue=(key)=>wingers.length?avg(wingers.map(i=>norm(i[key]))):0;
+ const insideFinish=wingers.length?avg(wingers.map(i=>(i.cutInside+i.shoot+i.run)/300)):0;
+ const wideSupply=wingers.length?avg(wingers.map(i=>(i.wide+i.cross+i.crossEarly)/300)):0;
+ const carryBuild=wingers.length?avg(wingers.map(i=>(i.ballCarry+i.dribble)/200)):0;
+ attack += (insideFinish-.5)*.108 + (wideSupply-.5)*.069 + (carryBuild-.5)*.070;
+ control += (carryBuild-.5)*.045 + wingValue('passRisk')*.012;
+ defense -= (insideFinish-.5)*.018; // attacking wide roles may leave recovery space
+ const defensiveShapes=tactic.outPositions.map((pos,i)=>({index:i,group:positionAt(pos,i).group}));
+ const defensiveWide=defensiveShapes.filter(item=>['WIDE','WM','WB','FB'].includes(item.group)).map(item=>p[item.index]);
+ if(defensiveWide.length)defense+=avg(defensiveWide.map(i=>(norm(i.track)+norm(i.press)+norm(i.mark))/3))*.035;
+ // Role fit is not a free multiplier: a role is useful only insofar as its instructions suit the position.
+ const keeper=p[0];if(keeper.attackRole?.includes('스위퍼')&&t.defLine>70){defense+=.025;control+=.014;}
+ if(wingers.length&&wingValue('wide')>.5&&t.width>66)control+=.015;
+ if(wingers.length&&wingValue('cutInside')>.5&&t.overlapLeft+t.overlapRight>115)attack+=.026;
+
  const op=Object.values(tactic.opp);
  const targetDefense=avg(op.map(i=>(norm(i.press)*.24+norm(i.tight)*.31+norm(i.tackle)*.20+(i.foot==='약한 발'?.09:0))));
  defense+=targetDefense*.095;
@@ -95,6 +113,21 @@ function updateOpponent(match) {
   else{opp.press=clamp(opp.press-8,5,95);logEvent(match,`${opp.name} 감독: 경기 종료를 앞두고 압박을 조절하고 있습니다.`,'ai');}
  }
 }
+function describeUserAttack(t){
+ const wing=t.inPositions.map((pos,i)=>({pos:positionAt(pos,i),p:t.players[i]})).filter(x=>x.pos.group==='WIDE'||x.pos.group==='WM');
+ const choices=[];
+ wing.forEach(w=>{
+  const label=w.pos.label,pl=w.p;
+  if(pl.ballCarry>=67)choices.push({weight:pl.ballCarry/100,text:`${label}의 볼 운반과 전진 드리블`});
+  if(pl.cutInside>=64&&pl.shoot>=60)choices.push({weight:(pl.cutInside+pl.shoot)/200,text:`${label}의 인사이드 침투와 직접 슈팅`});
+  if(pl.wide>=65&&pl.cross>=60)choices.push({weight:(pl.wide+pl.cross)/200,text:`${label}의 측면 돌파와 크로스`});
+  if(pl.passRisk>=65&&pl.through>=65)choices.push({weight:(pl.passRisk+pl.through)/200,text:`${label}의 플레이메이킹과 스루패스`});
+ });
+ if(!choices.length)return t.team.playFocus==='중앙'?'중앙에서의 연계':t.team.crossFreq>73?'측면 크로스':t.team.through>64?'침투 패스':'조직적인 공격';
+ const total=choices.reduce((s,c)=>s+c.weight,0);let pick=Math.random()*total;
+ for(const c of choices){pick-=c.weight;if(pick<=0)return c.text;}
+ return choices[choices.length-1].text;
+}
 function stepMatch(state, n=5) {
  const m=state.match;
  if(!m||m.finished) return;
@@ -122,7 +155,7 @@ function stepMatch(state, n=5) {
    const quality=clamp(rand(.055,.22)*(.85+me.attack*.14)+rand(-.015,.015),.025,.35);
    m.shots++;m.xg+=quality;
    if(Math.random()<.37+quality*.6){m.shotsOn++;}
-   if(Math.random()<quality){m.home++;logEvent(m,`GOAL! 우리 팀이 ${t.team.playFocus==='중앙'?'중앙 연계':t.team.crossFreq>73?'측면 크로스':t.team.through>64?'침투 패스':'조직적인 공격'}로 득점했습니다. (${m.home}:${m.away})`,'goal');}
+   if(Math.random()<quality){m.home++;logEvent(m,`GOAL! 우리 팀이 ${describeUserAttack(t)}로 득점했습니다. (${m.home}:${m.away})`,'goal');}
    else if(quality>.16 || Math.random()<.15)logEvent(m,`우리 팀 슈팅. 추정 xG ${quality.toFixed(2)} — ${t.team.workBox>65?'박스 안에서 연결된 슈팅':'중거리 또는 공간 침투 장면'}.`,'shot');
   }
   if(Math.random()<.039*(them.attack/me.defense)){
