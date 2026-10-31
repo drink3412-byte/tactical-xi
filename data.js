@@ -68,22 +68,151 @@ const DEFINITIONS = [
  {group:'특수', key:'rhythm', title:'경기 리듬 변화', type:'range', value:45,desc:'템포를 불규칙하게 바꾸려는 정도'},
  {group:'특수', key:'discipline', title:'전술 규율', type:'range', value:68,desc:'지시된 위치와 역할을 지키려는 정도'}
 ];
+// Positional roles are hard-constrained by the tactical board location.
 const PERSONAL_DEFS = [
- {key:'attackRole', label:'공 소유 시 역할',type:'select',options:['기본 역할','인버티드 윙백','오버래핑 풀백','플레이메이킹 풀백','볼 플레잉 수비수','전진형 센터백','앵커맨','딥라잉 플레이메이커','박스 투 박스','메짤라','전진형 플레이메이커','윙어','인사이드 포워드','와이드 포워드','펄스 나인','타깃 포워드','침투형 공격수','포처','스위퍼 키퍼']},
- {key:'defendRole', label:'공 미소유 시 역할',type:'select',options:['기본 역할','지역 수비','대인 마킹','전진 압박','수비 커버','수비라인 지휘','측면 수비','중앙 차단','세컨드볼 경합','역습 대기']},
- {key:'run', label:'전진·침투', type:'range'},
- {key:'hold', label:'위치 유지', type:'range'},
- {key:'roam', label:'자유로운 위치 이동', type:'range'},
- {key:'passRisk', label:'모험적 패스', type:'range'},
- {key:'dribble', label:'개인 드리블', type:'range'},
- {key:'shoot', label:'직접 슈팅', type:'range'},
- {key:'cross', label:'크로스 빈도', type:'range'},
- {key:'press', label:'개인 압박', type:'range'},
- {key:'tackle', label:'개인 태클 적극성', type:'range'},
- {key:'mark', label:'밀착 마킹', type:'range'},
- {key:'track', label:'수비 복귀', type:'range'},
- {key:'wide', label:'측면 벌리기', type:'range'}
+ {key:'ballCarry',label:'볼 운반 거리',type:'range',group:'공 소유 · 드리블',desc:'공을 가진 채 전진하며 공간을 끌어낼 빈도'},
+ {key:'dribble',label:'1대1 돌파',type:'range',group:'공 소유 · 드리블',desc:'수비수를 직접 제치는 돌파 시도'},
+ {key:'cutInside',label:'안쪽으로 파고들기',type:'range',group:'공 소유 · 드리블',desc:'측면에서 하프스페이스와 중앙으로 진입'},
+ {key:'passRisk',label:'모험적인 패스',type:'range',group:'공 소유 · 배급',desc:'전진·킬패스의 위험을 감수'},
+ {key:'through',label:'스루패스 시도',type:'range',group:'공 소유 · 배급',desc:'수비 라인 사이로 찔러 넣는 패스'},
+ {key:'cross',label:'크로스 빈도',type:'range',group:'공 소유 · 배급',desc:'측면에서 박스로 공 공급'},
+ {key:'crossEarly',label:'얼리 크로스',type:'range',group:'공 소유 · 배급',desc:'깊게 들어가지 않고 빠르게 올리는 크로스'},
+ {key:'shoot',label:'직접 슈팅',type:'range',group:'공 소유 · 마무리',desc:'직접 마무리하려는 성향'},
+ {key:'holdUp',label:'등지고 공 지키기',type:'range',group:'공 소유 · 마무리',desc:'공을 받아 동료에게 연결할 때까지 버티기'},
+ {key:'run',label:'뒷공간 침투',type:'range',group:'공 소유 · 움직임',desc:'수비 라인 뒤쪽을 공략하는 움직임'},
+ {key:'wide',label:'터치라인 유지',type:'range',group:'공 소유 · 움직임',desc:'폭을 넓히며 바깥쪽에 위치'},
+ {key:'roam',label:'포지션 이탈 자유도',type:'range',group:'공 소유 · 움직임',desc:'정해진 구역을 벗어나 공을 받는 움직임'},
+ {key:'hold',label:'자리 지키기',type:'range',group:'공 소유 · 움직임',desc:'기본 위치를 유지하며 균형을 지킴'},
+ {key:'press',label:'압박 빈도',type:'range',group:'공 미소유 · 수비',desc:'볼 소유자에게 적극 접근'},
+ {key:'tackle',label:'태클 적극성',type:'range',group:'공 미소유 · 수비',desc:'위험을 감수한 볼 탈취'},
+ {key:'mark',label:'밀착 마킹',type:'range',group:'공 미소유 · 수비',desc:'상대의 볼 받는 공간을 차단'},
+ {key:'track',label:'수비 복귀',type:'range',group:'공 미소유 · 수비',desc:'공격권을 잃었을 때 내려오는 정도'}
 ];
+const ROLE_LIBRARY = {
+ GK:[
+  ['골키퍼','골문 앞을 지키는 안정적인 골키퍼',{run:5,hold:90,passRisk:20,ballCarry:5}],
+  ['스위퍼 키퍼','수비라인 뒤 공간을 커버하고 빌드업에 참여',{run:35,hold:55,passRisk:52,ballCarry:24}],
+  ['공격형 스위퍼 키퍼','높은 위치에서 전개에 적극 가담',{run:45,hold:40,passRisk:65,ballCarry:35}]
+ ],
+ CB:[
+  ['중앙 수비수','수비 위치와 공간을 우선 보호',{hold:85,run:10,passRisk:20}],
+  ['볼 플레잉 수비수','후방에서 전진 패스와 빌드업 주도',{hold:75,passRisk:73,through:45}],
+  ['전진형 센터백','필요할 때 공을 몰고 전진해 숫자 우위 형성',{hold:48,ballCarry:64,run:43}],
+  ['커버형 센터백','수비 뒷공간을 우선적으로 보호',{hold:91,press:36,track:88}]
+ ],
+ FB:[
+  ['풀백','측면 수비에 우선 집중',{hold:78,wide:65,run:35,track:84}],
+  ['오버래핑 풀백','윙어 바깥으로 전진하며 크로스 제공',{hold:35,run:78,wide:88,cross:74}],
+  ['인버티드 풀백','안쪽으로 좁혀 후방 빌드업을 지원',{hold:65,wide:15,cutInside:75,passRisk:48}],
+  ['공격형 풀백','측면 전개와 직선 돌파를 적극 지원',{run:82,ballCarry:68,cross:68,wide:78}]
+ ],
+ WB:[
+  ['윙백','측면 공격과 수비에 균형 있게 가담',{run:70,wide:80,cross:65,track:65}],
+  ['공격형 윙백','높은 위치에서 돌파와 크로스 주도',{run:82,wide:87,ballCarry:72,cross:84}],
+  ['인버티드 윙백','중원 안쪽으로 이동해 패스 연결',{wide:18,cutInside:78,passRisk:63,hold:42}],
+  ['수비형 윙백','측면 공간을 지키며 상대 윙어 봉쇄',{hold:78,track:89,run:28}]
+ ],
+ DM:[
+  ['수비형 미드필더','중앙의 위험한 공간을 보호',{hold:86,track:78,mark:72}],
+  ['앵커맨','수비 라인 앞을 떠나지 않는 보호막',{hold:94,run:12,press:42}],
+  ['딥라잉 플레이메이커','낮은 위치에서 전진 패스로 전개',{hold:81,passRisk:75,through:67}],
+  ['하프백','빌드업 시 센터백 사이로 내려옴',{hold:88,run:22,passRisk:48}],
+  ['볼 위닝 미드필더','강한 압박과 태클로 중원 장악',{press:86,tackle:80,mark:73}]
+ ],
+ CM:[
+  ['중앙 미드필더','공수 간격을 연결하는 균형형',{hold:57,run:51,passRisk:50}],
+  ['박스 투 박스','양쪽 페널티 박스를 오가는 활동형',{run:82,track:80,press:74}],
+  ['메짤라','중앙에서 하프스페이스로 빠져 침투',{run:76,roam:75,cutInside:60,hold:26}],
+  ['전진형 플레이메이커','전방에서 패스와 찬스 메이킹',{through:82,passRisk:83,roam:70}],
+  ['딥라잉 플레이메이커','낮은 자리에서 경기 흐름 조율',{hold:82,passRisk:71,through:67}],
+  ['카릴레로','중원과 측면 사이 공간을 왕복',{track:74,wide:67,run:61}]
+ ],
+ AM:[
+  ['공격형 미드필더','전방에서 공격에 균형 있게 기여',{run:62,shoot:60,passRisk:62}],
+  ['전진형 플레이메이커','최전방에 창의적인 패스 공급',{passRisk:84,through:86,roam:75,shoot:30}],
+  ['쉐도우 스트라이커','공격수 뒤에서 박스 안까지 침투',{run:89,shoot:84,hold:20}],
+  ['엔간체','중앙에 머물며 패스 허브 역할 수행',{run:25,hold:81,through:81,passRisk:78}]
+ ],
+ WIDE:[
+  ['정통 윙어','터치라인을 넓게 쓰며 크로스를 제공',{wide:92,cutInside:12,ballCarry:54,dribble:64,cross:79,shoot:24,run:65}],
+  ['볼 운반형 윙어','공을 받아 길게 몰고 전진하며 수비를 끌어냄',{ballCarry:95,dribble:76,wide:67,cutInside:37,cross:48,shoot:39,run:65}],
+  ['인버티드 윙어','측면에서 안쪽으로 들어와 패스 연결',{cutInside:91,wide:24,ballCarry:64,passRisk:78,through:75,shoot:54,cross:24}],
+  ['인사이드 포워드','안쪽으로 침투하며 직접 슈팅을 노림',{cutInside:96,wide:14,ballCarry:75,dribble:74,shoot:95,run:89,cross:13}],
+  ['와이드 플레이메이커','측면에서 공간을 찾고 창의적인 패스 공급',{wide:55,roam:86,passRisk:90,through:90,cross:44,shoot:24}],
+  ['크로스 특화 윙어','폭을 유지하며 조기에 크로스를 투입',{wide:94,cross:96,crossEarly:91,shoot:14,cutInside:10}],
+  ['압박형 윙어','상대 빌드업을 괴롭히고 볼을 탈취',{press:95,track:86,mark:78,run:57,shoot:34}]
+ ],
+ WM:[
+  ['와이드 미드필더','측면에서 공수 균형을 유지',{wide:74,track:76,run:46}],
+  ['정통 윙어','바깥쪽에서 넓게 전진하고 크로스',{wide:93,cross:79,run:70,track:54}],
+  ['볼 운반형 윙어','공을 소유해 측면에서 앞으로 운반',{ballCarry:94,dribble:74,wide:70,run:65}],
+  ['인버티드 윙어','중원 쪽으로 좁혀 패스 연결',{cutInside:90,wide:22,passRisk:74,through:68}],
+  ['인사이드 포워드','바깥에서 중앙으로 침투해 슈팅',{cutInside:94,shoot:91,run:85,wide:18}],
+  ['와이드 플레이메이커','측면에서 찬스를 만드는 패스 공급',{roam:82,passRisk:86,through:81}],
+  ['수비형 와이드 미드필더','후방을 지원하고 상대 풀백을 마킹',{track:93,press:74,mark:83,run:27}]
+ ],
+ ST:[
+  ['전방 공격수','전방에서 침투와 마무리를 모두 수행',{run:80,shoot:78,holdUp:48}],
+  ['침투형 공격수','수비 뒷공간을 반복적으로 공략',{run:97,shoot:82,holdUp:23}],
+  ['포처','박스에서 슈팅 기회를 기다림',{run:62,shoot:97,hold:66,passRisk:12}],
+  ['타깃 포워드','등지고 볼을 받으며 동료의 침투를 지원',{holdUp:96,hold:74,run:24,passRisk:38}],
+  ['펄스 나인','중원으로 내려와 연결과 공간 창출',{holdUp:65,roam:94,passRisk:82,through:76,run:30}],
+  ['압박형 포워드','상대 수비와 골키퍼를 적극 압박',{press:95,track:62,run:73,shoot:66}],
+  ['딥라잉 포워드','낮게 내려와 공격형 미드필더와 연계',{holdUp:79,roam:80,passRisk:72,through:60}]
+ ]
+};
+const DEFEND_ROLES={
+ GK:['골키퍼','스위핑 커버'],CB:['지역 수비','대인 마킹','커버','압박 전진','수비라인 지휘'],
+ FB:['측면 보호','대인 마킹','전진 압박','안쪽 커버'],WB:['측면 보호','전진 압박','수비 복귀','안쪽 커버'],
+ DM:['중앙 차단','대인 마킹','세컨드볼 경합','커버','전진 압박'],
+ CM:['중앙 차단','전진 압박','세컨드볼 경합','수비 복귀','대인 마킹'],
+ AM:['전진 압박','중앙 패스 차단','역습 대기','수비 복귀'],
+ WIDE:['전진 압박','측면 수비','상대 풀백 추적','역습 대기'],
+ WM:['측면 수비','상대 풀백 추적','전진 압박','수비 복귀'],
+ ST:['전진 압박','패스 차단','역습 대기','상대 센터백 마킹']
+};
+const DEFEND_PRESETS={
+ '지역 수비':{hold:85,mark:40},'대인 마킹':{mark:93,track:82},'커버':{track:89,hold:84,press:32},
+ '압박 전진':{press:92,mark:57},'수비라인 지휘':{hold:88,mark:72},'측면 보호':{track:85,wide:83},
+ '전진 압박':{press:93,track:67},'안쪽 커버':{track:78,wide:24},'수비 복귀':{track:95,press:44},
+ '중앙 차단':{mark:74,hold:82},'세컨드볼 경합':{mark:65,press:74},'중앙 패스 차단':{mark:72,press:69},
+ '역습 대기':{track:20,press:38},'측면 수비':{track:85,wide:85},'상대 풀백 추적':{track:93,mark:86},
+ '패스 차단':{press:73,mark:77},'상대 센터백 마킹':{press:80,mark:83},'골키퍼':{hold:90},'스위핑 커버':{run:40,track:74}
+};
+const POSITION_NAMES={GK:'GK',CB:'CB',FB:'FB',WB:'WB',DM:'DM',CM:'CM',AM:'AM',WIDE:'W',WM:'WM',ST:'ST'};
+function positionAt(coords,index){
+ if(index===0)return {group:'GK',label:'GK',name:'골키퍼'};
+ const [x,y]=coords,side=x<40?'L':x>60?'R':'C',wide=x<27||x>73;
+ let group;
+ if(y>=67)group=wide?'FB':'CB';
+ else if(y>=55)group=wide?'WB':'DM';
+ else if(y>=39)group=wide?'WM':'CM';
+ else if(y>=26)group=wide?'WIDE':'AM';
+ else group=wide?'WIDE':'ST';
+ const label={GK:'GK',CB:'CB',FB:side==='L'?'LB':'RB',WB:side==='L'?'LWB':'RWB',DM:'DM',CM:'CM',AM:'AM',WIDE:side==='L'?'LW':'RW',WM:side==='L'?'LM':'RM',ST:'ST'}[group];
+ const name={GK:'골키퍼',CB:'센터백',FB:'풀백',WB:'윙백',DM:'수비형 미드필더',CM:'중앙 미드필더',AM:'공격형 미드필더',WIDE:'윙어',WM:'측면 미드필더',ST:'스트라이커'}[group];
+ return {group,label,name};
+}
+function roleOptions(pos,shape='in'){
+ return shape==='in'?ROLE_LIBRARY[pos.group].map(x=>x[0]):DEFEND_ROLES[pos.group];
+}
+function rolePreset(pos,role){return ROLE_LIBRARY[pos.group]?.find(x=>x[0]===role)?.[2]||{};}
+function roleDescription(pos,role){return ROLE_LIBRARY[pos.group]?.find(x=>x[0]===role)?.[1]||'';}
+function ensureRoleValidity(t,i,shape,applyPreset=false){
+ const isIn=shape==='in',pos=positionAt(t[isIn?'inPositions':'outPositions'][i],i),key=isIn?'attackRole':'defendRole';
+ const options=roleOptions(pos,shape),old=t.players[i][key],invalid=!options.includes(old);
+ if(invalid)t.players[i][key]=options[0];
+ if((invalid||applyPreset)&&isIn){Object.assign(t.players[i],rolePreset(pos,t.players[i][key]));}
+ if((invalid||applyPreset)&&!isIn)Object.assign(t.players[i],DEFEND_PRESETS[t.players[i][key]]||{});
+ return invalid;
+}
+function normalizeTacticRoles(t){
+ if(!t||!t.players)return;
+ t.players.forEach((player,i)=>{
+  PERSONAL_DEFS.forEach(d=>{if(!Number.isFinite(player[d.key]))player[d.key]=50;});
+  ensureRoleValidity(t,i,'in');ensureRoleValidity(t,i,'out');
+ });
+}
 const OPP_TARGETS = ['GK','LB/LWB','LCB','RCB','RB/RWB','DM','LCM','RCM','LW','AM/RW','ST'];
 const SP_DEFS = [
  {key:'cornerSide', label:'코너킥 주요 투입 위치', type:'select',options:['니어 포스트','파 포스트','페널티 스팟','쇼트 코너','혼합']},
@@ -97,6 +226,7 @@ const SP_DEFS = [
 ];
 const DEFAULT_SP = Object.fromEntries(SP_DEFS.map(d=>[d.key,d.options?d.options[0]:50]));
 function createTactic(name='기본 전술') {
- const players = Array.from({length:11},(_,i)=> Object.fromEntries(PERSONAL_DEFS.map(d=>[d.key,d.options?d.options[0]:50])));
- return {name,inFormation:'4-2-3-1',outFormation:'4-1-4-1',inPositions:FORMATIONS['4-2-3-1'].map(p=>[...p]),outPositions:FORMATIONS['4-1-4-1'].map(p=>[...p]),team:Object.fromEntries(DEFINITIONS.map(d=>[d.key,d.value])),players, opp:Object.fromEntries(OPP_TARGETS.map(k=>[k,{press:50,tight:50,tackle:50,foot:'자동'}])),setpieces:{...DEFAULT_SP}};
+ const players = Array.from({length:11},()=> Object.fromEntries(PERSONAL_DEFS.map(d=>[d.key,50])));
+ const t={name,inFormation:'4-2-3-1',outFormation:'4-1-4-1',inPositions:FORMATIONS['4-2-3-1'].map(p=>[...p]),outPositions:FORMATIONS['4-1-4-1'].map(p=>[...p]),team:Object.fromEntries(DEFINITIONS.map(d=>[d.key,d.value])),players, opp:Object.fromEntries(OPP_TARGETS.map(k=>[k,{press:50,tight:50,tackle:50,foot:'자동'}])),setpieces:{...DEFAULT_SP}};
+ normalizeTacticRoles(t);return t;
 }
