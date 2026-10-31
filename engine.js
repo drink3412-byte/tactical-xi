@@ -1,4 +1,4 @@
-// TACTICAL XI match model v0.1: explicit tactical parameters -> match probabilities.
+// TACTICAL XI match model v0.3: explicit tactical parameters -> match probabilities.
 // This is a lightweight strategic simulation, not a 22-player physical simulation.
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
 const avg=(arr)=>arr.reduce((a,b)=>a+b,0)/Math.max(1,arr.length);
@@ -92,10 +92,111 @@ function calculatePreview(tactic, enemy, minute=20){
  const them=getOpponentModel(enemy,minute);
  return {offense:Math.round(clamp(me.attack/them.defense*70,20,100)),defense:Math.round(clamp(me.defense/them.attack*70,20,100)),possession:Math.round(clamp(50+(me.control-them.control)*18+(me.strength-them.strength)*.17,30,70)),press:Math.round(me.pressure),risk:Math.round(clamp(20+me.exposure*105+Math.max(0,tactic.team.mentality-50)*.27,10,95)),fatigue:Math.round(me.fatigue*100)};
 }
+
+// 전술 분석은 실제로 시뮬레이션에 투입된 설정값과 상대 성향을 기반으로 한다.
+// 실시간 선수 추적 데이터가 아닌 모델의 위험도 추정값이다.
+function getThreatProfiles(tactic, enemy, minute=0) {
+ const t=tactic.team, o=enemy||{press:50,width:50,approach:50};
+ const q=(value)=>clamp(Number(value)||0,0,100);
+ const line=q(t.defLine), press=q(t.press), cover=q(t.restDef);
+ const shape=(tactic.outPositions||[]).filter((p,i)=>i!==0);
+ const flankCover=shape.filter(p=>p[0]<31||p[0]>69).length;
+ const profiles=[
+  {
+   id:'space', title:'높은 수비 라인 뒤 침투',category:'뒷공간',
+   severity:clamp(Math.round(18+Math.max(0,line-51)*.98+Math.max(0,q(o.approach)-50)*.54+Math.max(0,53-q(t.dropAgainstRuns))*.33+Math.max(0,50-q(t.offside))*.18),12,96),
+   evidence:`수비 라인 ${line} · 침투 대응 후퇴 ${q(t.dropAgainstRuns)} · 상대 직선 전개 ${q(o.approach)}`,
+   explanation:'상대가 긴 전진 패스를 시도할 때 수비 뒷공간을 내줄 가능성이 있습니다.',
+   advice:'수비 라인과 침투 대응 후퇴를 함께 점검하세요. 오프사이드 트랩은 라인 정렬과 함께 판단해야 합니다.',
+   target:'defLine',group:'수비', targets:['defLine','dropAgainstRuns','offside']
+  },
+  {
+   id:'wing',title:'측면 공간 및 크로스 허용',category:'측면',
+   severity:clamp(Math.round(17+Math.max(0,q(o.width)-49)*.67+Math.max(0,58-q(t.defWidth))*.5+Math.max(0,57-q(t.stopCross))*.48+Math.max(0,4-flankCover)*5.5),12,95),
+   evidence:`상대 공격 폭 ${q(o.width)} · 우리 수비 폭 ${q(t.defWidth)} · 크로스 차단 ${q(t.stopCross)}`,
+   explanation:'상대가 측면에서 수적 우위를 만들거나 크로스를 공급할 가능성이 있습니다.',
+   advice:'수비 폭과 크로스 차단을 확인하고, 필요하면 측면 수비수의 복귀 역할도 조정하세요.',
+   target:'defWidth',group:'수비',targets:['defWidth','stopCross']
+  },
+  {
+   id:'transition',title:'공격 후 역습 대비 부족',category:'전환',
+   severity:clamp(Math.round(16+Math.max(0,q(t.mentality)-49)*.63+Math.max(0,62-cover)*.75+Math.max(0,q(t.boxRuns)-62)*.23+(t.lost==='역압박'&&q(o.approach)>69?9:0)),12,96),
+   evidence:`공격 성향 ${q(t.mentality)} · 후방 잔류 ${cover} · 박스 침투 ${q(t.boxRuns)}`,
+   explanation:'공격 가담 인원이 많은 상황에서 볼을 잃으면 상대의 빠른 역습에 취약합니다.',
+   advice:'공격 시 후방 잔류와 공을 잃은 직후 행동을 확인하세요. 공격을 줄이지 않고도 균형을 조정할 수 있습니다.',
+   target:'restDef',group:'전환',targets:['restDef','lost']
+  },
+  {
+   id:'buildup',title:'후방 빌드업 압박 위험',category:'빌드업',
+   severity:clamp(Math.round(12+Math.max(0,q(o.press)-47)*.75+Math.max(0,q(t.buildShort)-57)*.58+(t.gkMethod==='짧은 패스'?9:0)+Math.max(0,45-q(t.passing))*.19),12,94),
+   evidence:`상대 압박 ${q(o.press)} · 짧은 빌드업 ${q(t.buildShort)} · 골키퍼 배급 ${t.gkMethod}`,
+   explanation:'상대의 높은 압박 아래에서 후방 패스 연결이 끊길 위험이 있습니다.',
+   advice:'후방 빌드업 우선, 패스 길이, 골키퍼 배급을 비교해 주세요. 긴 패스가 항상 정답은 아닙니다.',
+   target:'buildShort',group:'빌드업',targets:['buildShort','passing','gkMethod']
+  },
+  {
+   id:'middle',title:'중앙 지역 공간 노출',category:'중앙',
+   severity:clamp(Math.round(19+Math.max(0,62-q(t.compact))*.66+Math.max(0,q(o.approach)-59)*.35+Math.max(0,q(t.engageLine)-q(t.defLine)-8)*.52),12,92),
+   evidence:`라인 간격 압축 ${q(t.compact)} · 압박 시작 위치 ${q(t.engageLine)} · 수비 라인 ${line}`,
+   explanation:'전방 압박과 최종 수비 라인 사이에 상대가 공을 받을 공간이 남을 수 있습니다.',
+   advice:'라인 간격 압축과 압박 시작 위치를 같이 확인하세요.',
+   target:'compact',group:'수비',targets:['compact','engageLine']
+  },
+  {
+   id:'fatigue',title:'후반 압박 유지 부담',category:'체력',
+   severity:clamp(Math.round(10+Math.max(0,minute-52)*.86+Math.max(0,press-60)*.4+Math.max(0,q(t.tempo)-62)*.33),10,94),
+   evidence:`경기 ${minute}분 · 압박 ${press} · 공격 템포 ${q(t.tempo)}`,
+   explanation:'높은 압박과 빠른 템포의 누적 부담으로 후반 수비 대응이 약해질 수 있습니다.',
+   advice:'압박 강도 또는 공격 템포를 점검하고 경기 흐름에 맞게 조절하세요.',
+   target:'press',group:'수비',targets:['press','tempo']
+  }
+ ];
+ return profiles.sort((a,b)=>b.severity-a.severity);
+}
+function selectThreatPath(profiles) {
+ // 높은 위험도가 해당 경로로의 실점 가능성을 높인다. 낮은 위험도도 0으로 만들지 않는다.
+ const weights=profiles.map(p=>Math.pow(p.severity/42,2.4));
+ let roll=Math.random()*weights.reduce((a,b)=>a+b,0);
+ for(let i=0;i<profiles.length;i++){roll-=weights[i];if(roll<=0)return profiles[i];}
+ return profiles[0];
+}
+function createMatchDiagnostic(m,profile,quality,kind='open') {
+ const record={minute:m.minute,id:profile.id,title:profile.title,category:profile.category,
+  evidence:profile.evidence,explanation:profile.explanation,advice:profile.advice,
+  target:profile.target,group:profile.group,targets:profile.targets,
+  severity:profile.severity,quality:Number(quality.toFixed(2)),kind};
+ m.incidents=m.incidents||[];m.incidents.unshift(record);m.incidents=m.incidents.slice(0,12);
+ return record;
+}
+function watchOpposition(m,tactic,quality){
+ m.dangerShots=m.dangerShots||[];
+ m.dangerShots.push({minute:m.minute,quality});
+ m.dangerShots=m.dangerShots.filter(x=>m.minute-x.minute<=13);
+ const recent=m.dangerShots.reduce((s,x)=>s+x.quality,0);
+ const profiles=getThreatProfiles(tactic,m.enemy,m.minute);
+ const dangerous=(recent>=.34 && m.dangerShots.length>=2)||profiles[0].severity>=78;
+ if(dangerous && m.minute>=7 && (m.lastWarningMinute==null||m.minute-m.lastWarningMinute>=13)){
+  const leader=profiles[0];m.lastWarningMinute=m.minute;
+  m.latestWarning={minute:m.minute,id:leader.id,title:leader.title,category:leader.category,
+   evidence:leader.evidence,explanation:leader.explanation,advice:leader.advice,
+   severity:leader.severity,target:leader.target,group:leader.group,targets:leader.targets,
+   recentXg:Number(recent.toFixed(2))};
+  logEvent(m,`전술 분석관 경고 — ${leader.category}: ${leader.title}. ${leader.evidence} · 최근 13분 상대 xG ${recent.toFixed(2)}`,'warning');
+  return true;
+ }
+ return false;
+}
+function addConcession(m,profile,quality,kind='open'){
+ const d=createMatchDiagnostic(m,profile,quality,kind);
+ m.away++;
+ logEvent(m,`실점! ${d.category} — ${d.title} (찬스 xG ${d.quality.toFixed(2)}) · ${m.home}:${m.away} · 아래 실점 분석을 확인하세요.`,'against');
+ return d;
+}
+
 function newMatch(state) {
  const oppClub=CLUBS[state.career.fixtureIndex%CLUBS.length];
  const enemy={...oppClub,aggression:0,adapted:[],formation:oppClub.formation};
- return {minute:0,home:0,away:0,shots:0,oppShots:0,shotsOn:0,oppShotsOn:0,xg:0,oppXg:0,passes:0,oppPasses:0,events:[{minute:0,kind:'info',text:`${oppClub.name} 전술 분석: ${oppClub.style}, 기본 ${oppClub.formation}. 킥오프 준비 완료.`}],enemy,finished:false};
+ return {minute:0,home:0,away:0,shots:0,oppShots:0,shotsOn:0,oppShotsOn:0,xg:0,oppXg:0,passes:0,oppPasses:0,events:[{minute:0,kind:'info',text:`${oppClub.name} 전술 분석: ${oppClub.style}, 기본 ${oppClub.formation}. 킥오프 준비 완료.`}],enemy,finished:false,incidents:[],dangerShots:[],latestWarning:null,lastWarningMinute:null,pausedReason:null};
 }
 function logEvent(match,text,kind='info') {match.events.unshift({minute:match.minute,text,kind}); match.events=match.events.slice(0,48);}
 function updateOpponent(match) {
@@ -132,15 +233,19 @@ function stepMatch(state, n=5) {
  const m=state.match;
  if(!m||m.finished) return;
  const t=state.tactics[state.activeSlot];
+ m.pausedReason=null;
+ m.incidents=m.incidents||[];
  for(let tick=0;tick<n && m.minute<90;tick++){
   m.minute++;
   updateOpponent(m);
   const me=getTeamModel(t,CLUBS[state.career.club].strength,m.minute,m.enemy);
   const them=getOpponentModel(m.enemy,m.minute);
+  const threatProfiles=getThreatProfiles(t,m.enemy,m.minute);
+  const pressureThreat=threatProfiles[0];
   const teamQuality=Math.pow(1.045,(me.strength-them.strength));
   const oppQuality=1/teamQuality;
   const teamChance=clamp(.118*teamQuality*me.attack/them.defense*(.95+me.control/them.control*.06),.035,.24);
-  const oppChance=clamp(.116*oppQuality*them.attack/me.defense,.035,.25);
+  const oppChance=clamp(.116*oppQuality*them.attack/me.defense*(1+Math.max(0,pressureThreat.severity-48)*.004),.035,.30);
   m.passes+=Math.round(rand(3,6)*me.control);
   m.oppPasses+=Math.round(rand(3,6)*them.control);
   // 세트피스의 빈도/질은 전술 편집기의 세트피스 항목에서 계산한다.
@@ -162,17 +267,33 @@ function stepMatch(state, n=5) {
    const cornerGuard=t.setpieces.defCorner==='혼합'?.89:t.setpieces.defCorner==='지역 방어'?.93:1;
    const quality=clamp(.11*cornerGuard-(t.setpieces.counterFromCorners-50)*.0001,.04,.17);
    m.oppShots++;m.oppXg+=quality;
-   if(Math.random()<quality){m.away++;m.oppShotsOn++;logEvent(m,`실점! 상대 코너킥에서 공간을 허용했습니다. (${m.home}:${m.away})`,'against');}
+   if(Math.random()<quality){
+    m.oppShotsOn++;
+    addConcession(m,{id:'corner',title:'수비 코너킥에서 박스 공간 허용',category:'세트피스',
+     severity:Math.round(40+(t.setpieces.counterFromCorners||50)*.20),
+     evidence:`코너 수비 ${t.setpieces.defCorner} · 수비 코너 역습 대기 ${t.setpieces.counterFromCorners}`,
+     explanation:'상대 코너킥에서 박스 안 수비가 충분히 이루어지지 않았습니다.',
+     advice:'세트피스 탭의 코너킥 수비 방식과 수비 시 역습 대기 인원을 살펴보세요.',
+     target:'defCorner',group:'세트피스',targets:['defCorner','counterFromCorners']},quality,'corner');
+    m.pausedReason='conceded';
+   }else watchOpposition(m,t,quality);
   }
+  if(m.pausedReason)break; // 코너킥 실점 직후 다른 장면을 추가 진행하지 않음
   if(Math.random()<oppChance){
-   const risk=me.exposure*.08;
-   const quality=clamp(rand(.055,.20)+risk,.025,.34);
+   const path=selectThreatPath(threatProfiles);
+   const risk=me.exposure*.08+Math.max(0,path.severity-49)*.00057;
+   const quality=clamp(rand(.045,.20)+risk,.025,.37);
    m.oppShots++;m.oppXg+=quality;
    if(Math.random()<.40+quality*.65)m.oppShotsOn++;
-   if(Math.random()<quality){m.away++;logEvent(m,`실점! ${m.enemy.name}이(가) 빈 공간을 공략했습니다. (${m.home}:${m.away})`,'against');}
-   else if(quality>.16||Math.random()<.13)logEvent(m,`상대가 슈팅 기회를 만들었습니다. 추정 xG ${quality.toFixed(2)}.`,'shot');
+   if(Math.random()<quality){addConcession(m,path,quality);m.pausedReason='conceded';}
+   else {
+    const warned=watchOpposition(m,t,quality);
+    if(quality>.16||Math.random()<.13)logEvent(m,`상대 슈팅: ${path.category} 경로 · 추정 xG ${quality.toFixed(2)}. ${path.title}`,'shot');
+    if(warned)m.pausedReason='warning';
+   }
   }
   if(m.minute===45) logEvent(m,'하프타임. 전술실에서 모든 지시를 바꾼 뒤 후반전을 시작할 수 있습니다.','info');
+  if(m.pausedReason)break; // 15분 진행 중에도 위험/실점 발생 시 즉시 중단
  }
  if(m.minute>=90){m.finished=true;logEvent(m,`경기 종료: ${m.home} : ${m.away}. 경기 리뷰를 확인하십시오.`,'finish');}
 }
