@@ -8,7 +8,7 @@ try{state=JSON.parse(localStorage.getItem(STORAGE_KEY))||defaultState();if(!stat
 state.tactics.forEach(normalizeTacticRoles);
 const ui={page:'tactics',shape:'in',tab:'player',player:7,opponent:10,expandedGroup:'공 소유 · 드리블'};
 function tactic(){return state.tactics[state.activeSlot];}
-function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch(e){}const s=$('#saveLabel');s.textContent='● 자동 저장';}
+function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch(e){}const s=$('#saveLabel');if(s)s.textContent='● 자동 저장';if(ui?.page==='tactics'&&state.match&&!state.match.finished)renderMatchDiagnosis();}
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('visible');clearTimeout(toast.timeout);toast.timeout=setTimeout(()=>t.classList.remove('visible'),2600);}
 function setPage(page){ui.page=page;$$('.nav').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$$('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+page));if(page==='match')renderMatch();if(page==='career')renderCareer();if(page==='tactics'){renderTactics();}window.scrollTo({top:0,behavior:'instant'});}
 function renderTactics(){
@@ -65,7 +65,7 @@ function renderPitch(){
  });
 }
 function makeControl(def,value, onUpdate){
- const control=document.createElement('div');control.className='control';
+ const control=document.createElement('div');control.className='control';control.dataset.controlKey=def.key;
  const safeId='control-'+Math.random().toString(36).slice(2);
  const title=def.title||def.label;
  if(def.type==='select'){
@@ -170,21 +170,59 @@ function renderPreview(){
  const data=calculatePreview(tactic(),enemy,state.match?.minute||20);
  $('#tacticalPreview').innerHTML=[['공격 지표',data.offense],['수비 지표',data.defense],['점유 예측',data.possession+'%'],['압박 지표',data.press],['뒷공간 위험',data.risk],['소모 지수',data.fatigue]].map(([k,v],i)=>`<div class="preview-item"><span>${k}</span><strong class="${i===4?'risk':''}">${v}</strong></div>`).join('');
 }
+
+function renderMatchDiagnosis(){
+ const panel=$('#matchDiagnosis');if(!panel)return;
+ const m=state.match;if(!m){panel.innerHTML='<p class="analyst-muted">경기를 시작하면 위험 요소가 나타납니다.</p>';return;}
+ const profiles=getThreatProfiles(tactic(),m.enemy,m.minute);
+ const incident=m.incidents?.[0],warning=m.latestWarning;
+ const lead=incident||warning||null;
+ const top=profiles[0];
+ const opponentShift=(m.events||[]).find(e=>e.kind==='ai');
+ const aiLine=opponentShift?`<div class="analyst-opponent-shift"><b>${opponentShift.minute}' 상대 감독 변화</b> ${safe(opponentShift.text)}</div>`:'';
+ const history=(m.incidents||[]).length>1?`<div class="analyst-history"><strong>이번 경기 이전 실점</strong>${m.incidents.slice(1,5).map(i=>`<div><span>${i.minute}' · ${safe(i.category)}</span><b>${safe(i.title)}</b></div>`).join('')}</div>`:'';
+ const safe=(v)=>escapeHtml(v);
+ const rank=(score)=>score>=75?'높음':score>=55?'주의':'관찰';
+ const btn=(d,label)=>`<button type="button" class="analyst-jump" data-group="${safe(d.group)}" data-focus="${safe(d.target)}">${safe(label)} <span>↗</span></button>`;
+ let major='';
+ if(lead){
+  const incidentState=!!incident;
+  const now=getThreatProfiles(tactic(),m.enemy,m.minute).find(x=>x.id===lead.id);
+  const diff=now && now.severity!==lead.severity ? `<div class="analyst-comparison">당시 위험 지표 ${lead.severity} → 현재 설정 ${now.severity} <small>※ 상대 전술·경과 시간도 반영한 모형 값</small></div>`:'';
+  major=`<div class="analyst-critical ${incidentState?'is-conceded':'is-warning'}"><div class="analyst-status"><span>${incidentState?'실점 경로 추정':'상대 공격 위험 경고'}</span><b>${lead.minute}' · ${safe(lead.category)}</b></div><h4>${safe(lead.title)}</h4><div class="analyst-evidence">${safe(lead.evidence)}${incidentState?` · 장면 xG ${Number(lead.quality).toFixed(2)}`:` · 최근 상대 xG ${Number(lead.recentXg||0).toFixed(2)}`}</div><p>${safe(lead.explanation)}</p><div class="analyst-recommend"><span>확인할 지시</span>${safe(lead.advice)}</div>${diff}<div class="analyst-actions">${btn(lead,'해당 설정 직접 수정')}<span>선택지 강요 없이 전술실에서 수치 변경</span></div></div>`;
+ }
+ const topTwo=profiles.slice(0,2).map(d=>`<div class="analyst-risk"><div class="analyst-risk-head"><span>${safe(d.category)} <b>${safe(d.title)}</b></span><strong class="${d.severity>=75?'high':d.severity>=55?'mid':'low'}">${rank(d.severity)} ${d.severity}</strong></div><div class="analyst-meter"><i style="width:${d.severity}%"></i></div><p>${safe(d.evidence)}</p>${btn(d,'지시 보기')}</div>`).join('');
+ panel.innerHTML=`${major}${aiLine}<div class="analyst-subtitle"><strong>현재 예상 위험 경로</strong><small>전술·상대 성향을 계산한 예측, 확정 원인 아님</small></div><div class="analyst-risk-grid">${topTwo}</div>${history}`;
+ panel.querySelectorAll('.analyst-jump').forEach(b=>b.addEventListener('click',()=>jumpToTeamControl(b.dataset.group,b.dataset.focus)));
+}
+function jumpToTeamControl(group,key){
+ ui.tab='team';setPage('tactics');
+ const target=$(`[data-control-key="${key}"]`,$('#instructions'));
+ if(!target){toast('해당 설정을 찾지 못했습니다.');return;}
+ const details=target.closest('details');if(details)details.open=true;
+ target.classList.add('analysis-target');
+ target.scrollIntoView({behavior:'smooth',block:'center'});
+ const input=target.querySelector('input, select');if(input)input.focus({preventScroll:true});
+ setTimeout(()=>target.classList.remove('analysis-target'),3000);
+ toast(`${group} · ${target.querySelector('label')?.textContent||key} 직접 편집`);
+}
+
 function renderMatch(){
  if(!state.match&&!state.career.fired){state.match=newMatch(state);save();}
  const m=state.match,c=state.career;
  $('#homeName').textContent=CLUBS[c.club].name;$('#clubBadge').textContent=CLUBS[c.club].name;$('#seasonBadge').textContent='SEASON '+String(c.season).padStart(2,'0');
  $('#matchRound').textContent=`시즌 ${c.season} · 리그 ${c.played+1}라운드`;
  if(!m){$('#matchStatus').textContent='경질';return;}
- $('#matchStatus').textContent=m.finished?'경기 종료':m.minute===0?'킥오프 대기':'진행 중';
+ $('#matchStatus').textContent=m.finished?'경기 종료':m.minute===0?'킥오프 대기':m.pausedReason==='conceded'?'실점 · 분석 중':m.pausedReason==='warning'?'위험 경고 · 중단':'진행 중';
  $('#awayName').textContent=m.enemy.name;$('#matchTime').textContent=formatMinute(m.minute);
  $('#score').innerHTML=`${m.home} <small>:</small> ${m.away}`;
  $('#matchCaption').textContent=m.finished?'FULL TIME':m.minute===0?'KICK OFF':m.minute===45?'HALF TIME':'TACTICAL BATTLE';
  $('#advance5').hidden=m.finished||c.fired;$('#advance15').hidden=m.finished||c.fired;$('#finishMatch').hidden=!m.finished;
  $('#advance5').textContent=m.minute===0?'킥오프 / 5분 진행':'5분 진행';
- $('#matchHelp').textContent=c.fired?'구단이 감독을 경질했습니다. 새 커리어를 시작하십시오.':m.finished?'최종 결과를 확정하면 다음 라운드로 넘어갑니다.':'전술 수정 버튼을 누르면 시간이 멈춥니다. 전술실에서 직접 지시를 바꾸고 매치데이로 돌아와 진행하십시오.';
+ $('#matchHelp').textContent=c.fired?'구단이 감독을 경질했습니다. 새 커리어를 시작하십시오.':m.finished?'최종 결과를 확정하면 다음 라운드로 넘어갑니다.':m.pausedReason==='conceded'?'실점 직후 경기를 자동으로 멈췄습니다. 아래 분석에서 원인을 확인하고 지시를 직접 고치세요.':m.pausedReason==='warning'?'연속 위험 신호를 감지해 경기를 잠시 멈췄습니다. 전술 분석관을 확인하세요.':'전술은 언제든 수정할 수 있습니다. 실점 또는 강한 위험 신호에는 경기 진행이 자동으로 멈춥니다.';
  const sum=Math.max(1,m.passes+m.oppPasses),poss=Math.round(m.passes/sum*100);
  $('#matchStats').innerHTML=[['점유율',`${poss}%`,`${100-poss}%`,poss],['슈팅',m.shots,m.oppShots,Math.round((m.shots/Math.max(1,m.shots+m.oppShots))*100)],['유효슈팅',m.shotsOn,m.oppShotsOn,Math.round(m.shotsOn/Math.max(1,m.shotsOn+m.oppShotsOn)*100)],['xG',m.xg.toFixed(2),m.oppXg.toFixed(2),Math.round(m.xg/Math.max(.001,m.xg+m.oppXg)*100)]].map(([label,a,b,part])=>`<div><div class="stat-caption">${label}</div><div class="stat-row"><b>${a}</b><div class="stat-bar"><div class="stat-fill" style="width:${clamp(part,0,100)}%"></div></div><b>${b}</b></div></div>`).join('');
+ renderMatchDiagnosis();
  $('#events').innerHTML=m.events.map(ev=>`<div class="event ${ev.kind}"><span class="event-minute">${formatMinute(ev.minute)}</span>${escapeHtml(ev.text)}</div>`).join('');
  $('#scout').innerHTML=[['상대 감독 성향',m.enemy.style],['공격 포메이션',m.enemy.formation],['공격 전개','직선 패스 성향 '+m.enemy.approach+'/100'],['압박 수준',m.enemy.press+'/100'],['공격 폭',m.enemy.width+'/100'],['기본 전력',m.enemy.strength+'/100']].map(([a,b])=>`<div class="scout-item"><span>${a}</span><b>${b}</b></div>`).join('');
  const matchKey=`${c.season}-${c.fixtureIndex}`;
