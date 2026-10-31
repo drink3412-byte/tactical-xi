@@ -14,12 +14,12 @@
    </nav>
    <main>
     <section class="page active" id="page-tactics">
-     <div class="page-header"><div><span class="eyebrow">TACTICAL WORKSHOP</span><h1>모든 지시는 당신이 내립니다.</h1><p>정해진 대응 선택지 없이, 경기 도중에도 모든 전술을 직접 수정할 수 있습니다.</p></div><div class="save-msg" id="saveLabel">● 자동 저장</div></div>
+     <div class="page-header"><div><span class="eyebrow">TACTICAL WORKSHOP</span><h1>역할까지 지휘하는 전술실.</h1><p>선수의 위치에 맞는 역할을 선택하고, 볼 운반·안쪽 침투·직접 슈팅까지 직접 지시하십시오.</p></div><div class="save-msg" id="saveLabel">● 자동 저장</div></div>
      <div class="tactic-topline"><div class="slot-picker"><button class="slot active" data-slot="0">A <span>기본 전술</span></button><button class="slot" data-slot="1">B <span>대안 전술</span></button><button class="slot" data-slot="2">C <span>마무리 전술</span></button></div><div class="slot-actions"><button class="subtle-btn" id="renameTactic">이름 변경</button><button class="subtle-btn" id="cloneTactic">다른 슬롯으로 복사</button><button class="subtle-btn" id="resetTactic">초기화</button></div></div>
      <div class="tactics-layout">
       <section class="surface pitch-surface"><div class="section-head"><div><span class="eyebrow">FORMATION LAB</span><h2>전술 보드</h2></div><div class="live-indicator" id="liveIndicator">● 경기 전</div></div>
        <div class="shape-switch"><button data-shape="in" class="active">공 소유</button><button data-shape="out">공 미소유</button></div>
-       <div class="formation-row"><label for="formationInput">포메이션</label><select id="formationInput"></select><span class="micro">선수를 직접 드래그해 위치 조정</span></div>
+       <div class="formation-row"><label for="formationInput">포메이션</label><select id="formationInput"></select><span class="micro">드래그로 포지션 변경 · 역할 자동 제한</span></div>
        <div class="pitch-wrapper"><svg viewBox="0 0 340 500" id="pitch" aria-label="전술 보드, 선수 원을 이동해 포지션 조정">
         <defs><pattern id="pitchStripes" width="340" height="100" patternUnits="userSpaceOnUse"><rect width="340" height="50" fill="#174c3c"/><rect y="50" width="340" height="50" fill="#194f3e"/></pattern><filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".25"/></filter></defs>
         <rect x="0" y="0" width="340" height="500" rx="9" fill="url(#pitchStripes)"/>
@@ -30,7 +30,7 @@
        <div class="preview" id="tacticalPreview"></div>
       </section>
       <section class="surface instruction-surface"><div class="section-head"><div><span class="eyebrow">INSTRUCTION CENTER</span><h2>지시 설정</h2></div><span class="chip">세부 전술</span></div>
-       <div class="tabbar" id="instructionTabs"><button class="active" data-tab="team">팀 지시</button><button data-tab="player">개인 지시</button><button data-tab="opponent">상대 지시</button><button data-tab="setpiece">세트피스</button></div>
+       <div class="tabbar" id="instructionTabs"><button data-tab="team">팀 지시</button><button class="active" data-tab="player">개인 역할</button><button data-tab="opponent">상대 지시</button><button data-tab="setpiece">세트피스</button></div>
        <div class="instruction-panel" id="instructions"></div>
       </section>
      </div>
